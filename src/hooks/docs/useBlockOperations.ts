@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { useEditor } from "@/hooks/useEditor";
+import { useEditor } from "@/hooks/docs/useEditor";
 import { Block, BlockId, BlockType } from "@/types/models/docBlock";
 import {
   createBlock,

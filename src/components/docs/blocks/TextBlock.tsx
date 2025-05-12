@@ -1,192 +1,144 @@
-// import React, { useEffect, useRef } from "react";
-// import { cn } from "@/lib/utils";
-
-// interface TextBlockProps {
-//   content: {
-//     text: string;
-//     format?: Record<string, any>;
-//   };
-//   onChange: (content: any) => void;
-//   isSelected: boolean;
-//   isFocused: boolean;
-// }
-
-// /**
-//  * A basic text block component for plain text
-//  */
-// const TextBlock: React.FC<TextBlockProps> = ({
-//   content,
-//   onChange,
-//   isSelected,
-//   isFocused,
-// }) => {
-//   const contentRef = useRef<HTMLDivElement>(null);
-
-//   // Update content when text changes
-//   const handleContentChange = () => {
-//     if (contentRef.current) {
-//       const newText = contentRef.current.textContent || "";
-//       onChange({ ...content, text: newText });
-//     }
-//   };
-
-//   // Update the content when the format changes
-//   useEffect(() => {
-//     if (contentRef.current && content.format) {
-//       // Apply formatting (advanced implementation would handle this)
-//       // For now, we'll just set the content
-//     }
-//   }, [content.format]);
-
-//   return (
-//     <div className="py-1">
-//       <div
-//         ref={contentRef}
-//         className={cn(
-//           "outline-none whitespace-pre-wrap break-words",
-//           isSelected && "bg-gray-100 dark:bg-gray-800/50",
-//           !content.text &&
-//             "before:content-['Type_something...'] before:text-gray-400 before:pointer-events-none"
-//         )}
-//         contentEditable
-//         suppressContentEditableWarning
-//         onInput={handleContentChange}
-//         onBlur={handleContentChange}
-//         dangerouslySetInnerHTML={{ __html: content.text || "" }}
-//       />
-//     </div>
-//   );
-// };
-
-// export default TextBlock;
-
-import React, { useEffect, useRef } from "react";
-import { TextBlock as TextBlockType } from "@/types/models/docBlock";
-import { useEditor } from "../core/EditorProvider";
+import React, { useState, useEffect, useRef } from "react";
+import { useBlockOperations } from "@/hooks/docs/useBlockOperations";
+import { InlineFormatting } from "@/components/docs/formatting/InlineFormatting";
+import { cn } from "@/lib/utils";
+import { TextBlockType } from "@/types/models/docBlock";
 
 interface TextBlockProps {
-  block: TextBlockType;
-  isActive: boolean;
+  id: string;
+  content: string;
+  placeholder?: string;
+  format?: TextBlockType["format"];
+  onUpdate: (id: string, content: string, format?: any) => void;
+  onKeyDown?: (e: React.KeyboardEvent, id: string) => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
   readOnly?: boolean;
-  onClick: () => void;
-  onKeyDown: (e: React.KeyboardEvent) => void;
+  isSelected?: boolean;
 }
 
-const TextBlock: React.FC<TextBlockProps> = ({
-  block,
-  isActive,
-  readOnly = false,
-  onClick,
+export const TextBlock: React.FC<TextBlockProps> = ({
+  id,
+  content,
+  placeholder = "Type something...",
+  format = {},
+  onUpdate,
   onKeyDown,
+  onFocus,
+  onBlur,
+  readOnly = false,
+  isSelected = false,
 }) => {
-  const { updateBlock } = useEditor();
+  const [localContent, setLocalContent] = useState<string>(content);
+  const [showFormatting, setShowFormatting] = useState<boolean>(false);
+  const { splitBlock } = useBlockOperations();
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Focus the block when it becomes active
   useEffect(() => {
-    if (isActive && contentRef.current && !readOnly) {
-      contentRef.current.focus();
+    setLocalContent(content);
+  }, [content]);
 
-      // Place cursor at the end of the text content
+  // Update parent component when content changes
+  const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
+    const newContent = e.currentTarget.innerHTML;
+    setLocalContent(newContent);
+    onUpdate(id, newContent, format);
+  };
+
+  // Handle key commands
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Handle slash command trigger
+    if (
+      e.key === "/" &&
+      !e.shiftKey &&
+      (e.target as HTMLElement).textContent === ""
+    ) {
+      e.preventDefault();
+      // Open slash menu logic would go here
+    }
+
+    // Enter to split block
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
       const selection = window.getSelection();
-      if (selection) {
-        const range = document.createRange();
-        range.selectNodeContents(contentRef.current);
-        range.collapse(false); // Collapse to end
-        selection.removeAllRanges();
-        selection.addRange(range);
+      const range = selection?.getRangeAt(0);
+
+      if (range) {
+        const currentPos = range.startOffset;
+        const text = contentRef.current?.textContent || "";
+        const beforeText = text.substring(0, currentPos);
+        const afterText = text.substring(currentPos);
+
+        // Update current block with text before cursor
+        onUpdate(id, beforeText, format);
+
+        // Create new block with text after cursor
+        splitBlock(id, afterText);
       }
     }
-  }, [isActive, readOnly]);
 
-  // Convert rich text content to HTML
-  const renderContent = () => {
-    if (!block.content || block.content.length === 0) {
-      return "";
+    // Forward the event to parent
+    if (onKeyDown) {
+      onKeyDown(e, id);
     }
-
-    // In a real implementation, we'd properly handle all formatting
-    // For now, just return the plain text content
-    return block.content.map((item) => item.text).join("");
   };
 
-  // Handle content changes
-  const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
-    if (readOnly) return;
-
-    const newText = e.currentTarget.textContent || "";
-
-    // Update the block with new content
-    updateBlock(block.id, {
-      content: [{ text: newText }],
-    });
+  const handleFocus = () => {
+    setShowFormatting(true);
+    if (onFocus) onFocus();
   };
 
-  // In a real implementation, we would:
-  // 1. Handle formatting (bold, italic, etc.)
-  // 2. Process paste events to clean HTML
-  // 3. Implement drag handle for reordering
-  // 4. Add hover controls for block actions
+  const handleBlur = () => {
+    setShowFormatting(false);
+    if (onBlur) onBlur();
+  };
+
+  const handleFormatChange = (newFormat: Partial<TextBlockType["format"]>) => {
+    const updatedFormat = { ...format, ...newFormat };
+    onUpdate(id, localContent, updatedFormat);
+  };
 
   return (
-    <div
-      className={`block text-block ${isActive ? "active" : ""}`}
-      onClick={onClick}
-      style={{
-        position: "relative",
-        padding: "8px 32px",
-        margin: "8px 0",
-        borderRadius: "4px",
-        backgroundColor: isActive ? "rgba(35, 131, 226, 0.05)" : "transparent",
-      }}
-    >
-      {/* Drag handle (non-functional in this basic implementation) */}
-      <div
-        className="drag-handle"
-        style={{
-          position: "absolute",
-          left: "8px",
-          top: "50%",
-          transform: "translateY(-50%)",
-          opacity: isActive ? 0.5 : 0,
-          cursor: "grab",
-        }}
-      >
-        ⋮
-      </div>
+    <div className="relative group">
+      {showFormatting && isSelected && !readOnly && (
+        <div className="absolute -top-10 left-0 z-10">
+          <InlineFormatting
+            currentFormat={format}
+            onChange={handleFormatChange}
+          />
+        </div>
+      )}
 
-      {/* Editable content */}
       <div
         ref={contentRef}
         contentEditable={!readOnly}
         suppressContentEditableWarning
-        className="text-block-content"
         onInput={handleInput}
-        onKeyDown={onKeyDown}
-        style={{
-          outline: "none",
-          minHeight: "24px",
-          lineHeight: "1.5",
-          wordBreak: "break-word",
-        }}
-        dangerouslySetInnerHTML={{ __html: renderContent() }}
+        onKeyDown={handleKeyDown}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        dangerouslySetInnerHTML={{ __html: localContent || "" }}
+        className={cn(
+          "outline-none py-1 px-2 min-h-[1.5em] rounded-sm",
+          "focus:bg-gray-50 dark:focus:bg-gray-800/50",
+          {
+            "text-gray-400 italic": !localContent.trim(),
+            "font-bold": format?.bold,
+            italic: format?.italic,
+            underline: format?.underline,
+            "line-through": format?.strikethrough,
+            "text-gray-500": format?.code,
+            "bg-gray-100 dark:bg-gray-800/70 font-mono rounded px-1":
+              format?.code,
+            "text-red-500": format?.color === "red",
+            "text-blue-500": format?.color === "blue",
+            "text-green-500": format?.color === "green",
+            "text-yellow-500": format?.color === "yellow",
+            "text-purple-500": format?.color === "purple",
+          }
+        )}
+        data-placeholder={!localContent ? placeholder : undefined}
       />
-
-      {/* Block type indicator (visible when block is empty and active) */}
-      {isActive && (!block.content || block.content[0].text === "") && (
-        <div
-          className="placeholder"
-          style={{
-            position: "absolute",
-            top: "8px",
-            left: "32px",
-            color: "#9fa6b2",
-            pointerEvents: "none",
-          }}
-        >
-          Type '/' for commands
-        </div>
-      )}
     </div>
   );
 };

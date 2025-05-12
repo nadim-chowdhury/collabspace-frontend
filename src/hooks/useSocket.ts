@@ -16,7 +16,7 @@
 
 import { useEffect, useState } from "react";
 import { io, Socket } from "socket.io-client";
-import { useAuth } from "./useAuth";
+import { useAuth } from "./auth/useAuth";
 
 // Singleton socket instance
 let socket: Socket | null = null;
