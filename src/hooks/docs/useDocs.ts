@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useSocket } from "./useSocket";
+import { useSocket } from "../useSocket";
 
 // Define types for document operations
 export type DocOperation = {
@@ -38,7 +38,6 @@ const api = {
       }, 300);
     });
   },
-
   saveDocument: async (doc: Partial<DocContent>): Promise<DocContent> => {
     // In a real app, this would be an API call
     return new Promise((resolve) => {
@@ -55,7 +54,7 @@ const api = {
   },
 };
 
-export function useDoc(docId: string) {
+export function useDoc(docId: string | null) {
   const [document, setDocument] = useState<DocContent | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -71,7 +70,11 @@ export function useDoc(docId: string) {
     let isMounted = true;
 
     const loadDocument = async () => {
-      if (!docId) return;
+      if (!docId) {
+        setDocument(null);
+        setIsLoading(false);
+        return;
+      }
 
       setIsLoading(true);
       setError(null);
@@ -83,7 +86,9 @@ export function useDoc(docId: string) {
         }
       } catch (err) {
         if (isMounted) {
-          setError(err as Error);
+          setError(
+            err instanceof Error ? err : new Error("Failed to load document")
+          );
         }
       } finally {
         if (isMounted) {
@@ -107,20 +112,37 @@ export function useDoc(docId: string) {
     socket.emit("join_document", docId);
 
     // Listen for operations from other users
-    const handleDocOperation = (operation: DocOperation) => {
+    const handleDocOperation = (
+      operation: DocOperation & { docId: string }
+    ) => {
+      if (operation.docId !== docId) return;
+
       setDocument((prevDoc) => {
         if (!prevDoc) return null;
 
-        // This is a simplified example - real implementation would need to handle
-        // different operation types and merge conflicts
-        if (operation.type === "update" && operation.path.includes("content")) {
-          return {
-            ...prevDoc,
-            content: operation.value,
-            updatedAt: new Date().toISOString(),
-          };
+        // Simplified operation handling
+        switch (operation.type) {
+          case "update":
+            const updatedDoc = { ...prevDoc };
+
+            // Deep update for nested paths
+            let target = updatedDoc as any;
+            const pathParts = operation.path;
+
+            for (let i = 0; i < pathParts.length - 1; i++) {
+              target = target[pathParts[i]];
+            }
+
+            target[pathParts[pathParts.length - 1]] = operation.value;
+
+            return {
+              ...updatedDoc,
+              updatedAt: new Date().toISOString(),
+            };
+
+          default:
+            return prevDoc;
         }
-        return prevDoc;
       });
     };
 
@@ -148,15 +170,13 @@ export function useDoc(docId: string) {
       if (!document) return;
 
       // Optimistically update local state
-      setDocument((prev) =>
-        prev
-          ? {
-              ...prev,
-              content: newContent,
-              updatedAt: new Date().toISOString(),
-            }
-          : null
-      );
+      const optimisticUpdate = {
+        ...document,
+        content: newContent,
+        updatedAt: new Date().toISOString(),
+      };
+
+      setDocument(optimisticUpdate);
 
       // Emit change to other collaborators
       if (socket) {
@@ -172,16 +192,23 @@ export function useDoc(docId: string) {
 
       // Save to server (debounced in a real app)
       setIsSaving(true);
+
       try {
-        await api.saveDocument({
+        const savedDoc = await api.saveDocument({
           id: document.id,
           title: document.title,
           content: newContent,
         });
+
+        // Update with server response
+        setDocument(savedDoc);
       } catch (err) {
-        setError(err as Error);
+        setError(
+          err instanceof Error ? err : new Error("Failed to save document")
+        );
+
         // Revert on error
-        setDocument((prev) => (prev ? { ...document } : null));
+        setDocument(document);
       } finally {
         setIsSaving(false);
       }
@@ -195,15 +222,13 @@ export function useDoc(docId: string) {
       if (!document) return;
 
       // Optimistically update local state
-      setDocument((prev) =>
-        prev
-          ? {
-              ...prev,
-              title: newTitle,
-              updatedAt: new Date().toISOString(),
-            }
-          : null
-      );
+      const optimisticUpdate = {
+        ...document,
+        title: newTitle,
+        updatedAt: new Date().toISOString(),
+      };
+
+      setDocument(optimisticUpdate);
 
       // Emit change to other collaborators
       if (socket) {
@@ -219,16 +244,23 @@ export function useDoc(docId: string) {
 
       // Save to server
       setIsSaving(true);
+
       try {
-        await api.saveDocument({
+        const savedDoc = await api.saveDocument({
           id: document.id,
           title: newTitle,
           content: document.content,
         });
+
+        // Update with server response
+        setDocument(savedDoc);
       } catch (err) {
-        setError(err as Error);
+        setError(
+          err instanceof Error ? err : new Error("Failed to save document")
+        );
+
         // Revert on error
-        setDocument((prev) => (prev ? { ...document } : null));
+        setDocument(document);
       } finally {
         setIsSaving(false);
       }
