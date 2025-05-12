@@ -2,7 +2,7 @@ import { configureStore } from "@reduxjs/toolkit";
 import authReducer from "./slices/authSlice";
 import boardReducer from "./slices/boardSlice";
 import chatReducer from "./slices/chatSlice";
-import docReducer from "./slices/docSlice";
+import docReducer from "./slices/docs/docSlice";
 import themeReducer from "./slices/themeSlice";
 import videoReducer from "./slices/videoSlice";
 
